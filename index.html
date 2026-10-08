@@ -6,7 +6,9 @@
     <title>Каталог книг</title>
     <!-- Подключение Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<style>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
         :root {
             --primary-color: #4f46e5;
             --primary-hover: #4338ca;
@@ -233,38 +235,8 @@
     </div>
 
     <script>
-</head>
-<body>
-
-    <h1>Каталог книг</h1>
-
-    <div class="controls">
-        <input type="text" id="searchInput" placeholder="Поиск по названию или автору..." oninput="loadBooks()">
-        
-        <select id="sortSelect" onchange="loadBooks()">
-            <option value="title_asc">Название (А-Я)</option>
-            <option value="title_desc">Название (Я-А)</option>
-            <option value="year_desc">Сначала новые</option>
-            <option value="year_asc">Сначала старые</option>
-        </select>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Название книги</th>
-                <th>Автор</th>
-                <th>Год издания</th>
-            </tr>
-        </thead>
-        <tbody id="booksTableBody">
-            <tr><td colspan="3">Загрузка...</td></tr>
-        </tbody>
-    </table>
-
-    <script>
         // Конфигурация Supabase
-        const SUPABASE_URL = 'https://lremdhftyxsqzlksqzyz.supabase.co';
+        const SUPABASE_URL = 'https://lremdhftyxsqzlksqzyz.supabase.co/rest/v1/';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZW1kaGZ0eXhzcXpsa3Nxenl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0Mjg2NjAsImV4cCI6MjEwNzAwNDY2MH0.PIybODD8t0RLI4mgWdijEl52rx-rhA4-csqwl-wZO4Y';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -272,68 +244,53 @@
             const searchQuery = document.getElementById('searchInput').value.trim();
             const sortOption = document.getElementById('sortSelect').value;
             const tableBody = document.getElementById('booksTableBody');
+            const debugError = document.getElementById('debugError');
 
-            // Выбор столбцов и объединение таблиц (JOIN через foreign key)
+            debugError.style.display = 'none';
+
             let query = supabaseClient
                 .from('books')
-                .select(`
-                    id,
-                    title,
-                    publication_year,
-                    authors!inner ( name )
-                `);
+                .select('id, title, publication_year, authors(name)');
 
-            // Фильтрация (Поиск по названию книги или имени автора)
             if (searchQuery) {
                 query = query.or(`title.ilike.%${searchQuery}%,authors.name.ilike.%${searchQuery}%`);
             }
 
-            // Сортировка
-            switch (sortOption) {
-                case 'title_asc':
-                    query = query.order('title', { ascending: true });
-                    break;
-                case 'title_desc':
-                    query = query.order('title', { ascending: false });
-                    break;
-                case 'year_asc':
-                    query = query.order('publication_year', { ascending: true });
-                    break;
-                case 'year_desc':
-                    query = query.order('publication_year', { ascending: false });
-                    break;
-            }
+            if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
+            if (sortOption === 'title_desc') query = query.order('title', { ascending: false });
+            if (sortOption === 'year_asc') query = query.order('publication_year', { ascending: true });
+            if (sortOption === 'year_desc') query = query.order('publication_year', { ascending: false });
 
             const { data: books, error } = await query;
 
             if (error) {
-                console.error('Ошибка загрузки:', error);
-                tableBody.innerHTML = `<tr><td colspan="3">Ошибка загрузки данных</td></tr>`;
+                console.error('Ошибка Supabase:', error);
+                debugError.innerText = `Ошибка: ${error.message}`;
+                debugError.style.display = 'block';
+                tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Не удалось загрузить данные</td></tr>`;
                 return;
             }
 
-            if (books.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="3">Ничего не найдено</td></tr>`;
+            if (!books || books.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Ничего не найдено 🔍</td></tr>`;
                 return;
             }
 
-            // Отрисовка результатов
             tableBody.innerHTML = books.map(book => `
                 <tr>
-                    <td>${escapeHtml(book.title)}</td>
-                    <td>${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</td>
-                    <td>${book.publication_year || '—'}</td>
+                    <td><strong>${escapeHtml(book.title)}</strong></td>
+                    <td><span class="author-badge">${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</span></td>
+                    <td><span class="year-text">${book.publication_year || '—'}</span></td>
                 </tr>
             `).join('');
         }
 
         function escapeHtml(text) {
-            return text.replace(/[&<>"']/g, m => ({
+            return (text || '').replace(/[&<>"']/g, m => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
             })[m]);
         }
 
-        // Загрузка при открытии страницы
         loadBooks();
     </script>
 </body>
