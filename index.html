@@ -241,49 +241,54 @@
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         async function loadBooks() {
-            const searchQuery = document.getElementById('searchInput').value.trim();
-            const sortOption = document.getElementById('sortSelect').value;
-            const tableBody = document.getElementById('booksTableBody');
-            const debugError = document.getElementById('debugError');
+    const searchQuery = document.getElementById('searchInput').value.trim();
+    const sortOption = document.getElementById('sortSelect').value;
+    const tableBody = document.getElementById('booksTableBody');
+    const debugError = document.getElementById('debugError');
 
-            debugError.style.display = 'none';
+    debugError.style.display = 'none';
 
-            let query = supabaseClient
-                .from('books')
-                .select('id, title, publication_year, authors(name)');
+    // Включаем !inner, если есть поисковый запрос, чтобы сработал фильтр по автору
+    const selectClause = searchQuery 
+        ? 'id, title, publication_year, authors!inner(name)'
+        : 'id, title, publication_year, authors(name)';
 
-            if (searchQuery) {
-                query = query.or(`title.ilike.%${searchQuery}%,authors.name.ilike.%${searchQuery}%`);
-            }
+    let query = supabaseClient
+        .from('books')
+        .select(selectClause);
 
-            if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
-            if (sortOption === 'title_desc') query = query.order('title', { ascending: false });
-            if (sortOption === 'year_asc') query = query.order('publication_year', { ascending: true });
-            if (sortOption === 'year_desc') query = query.order('publication_year', { ascending: false });
+    if (searchQuery) {
+        query = query.or(`title.ilike.%${searchQuery}%,authors.name.ilike.%${searchQuery}%`);
+    }
 
-            const { data: books, error } = await query;
+    if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
+    if (sortOption === 'title_desc') query = query.order('title', { ascending: false });
+    if (sortOption === 'year_asc') query = query.order('publication_year', { ascending: true });
+    if (sortOption === 'year_desc') query = query.order('publication_year', { ascending: false });
 
-            if (error) {
-                console.error('Ошибка Supabase:', error);
-                debugError.innerText = `Ошибка: ${error.message}`;
-                debugError.style.display = 'block';
-                tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Не удалось загрузить данные</td></tr>`;
-                return;
-            }
+    const { data: books, error } = await query;
 
-            if (!books || books.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Ничего не найдено 🔍</td></tr>`;
-                return;
-            }
+    if (error) {
+        console.error('Ошибка Supabase:', error);
+        debugError.innerText = `Ошибка: ${error.message}`;
+        debugError.style.display = 'block';
+        tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Не удалось загрузить данные</td></tr>`;
+        return;
+    }
 
-            tableBody.innerHTML = books.map(book => `
-                <tr>
-                    <td><strong>${escapeHtml(book.title)}</strong></td>
-                    <td><span class="author-badge">${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</span></td>
-                    <td><span class="year-text">${book.publication_year || '—'}</span></td>
-                </tr>
-            `).join('');
-        }
+    if (!books || books.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Ничего не найдено 🔍</td></tr>`;
+        return;
+    }
+
+    tableBody.innerHTML = books.map(book => `
+        <tr>
+            <td><strong>${escapeHtml(book.title)}</strong></td>
+            <td><span class="author-badge">${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</span></td>
+            <td><span class="year-text">${book.publication_year || '—'}</span></td>
+        </tr>
+    `).join('');
+}
 
         function escapeHtml(text) {
             return (text || '').replace(/[&<>"']/g, m => ({
