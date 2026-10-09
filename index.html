@@ -240,7 +240,7 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZW1kaGZ0eXhzcXpsa3Nxenl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0Mjg2NjAsImV4cCI6MjEwNzAwNDY2MH0.PIybODD8t0RLI4mgWdijEl52rx-rhA4-csqwl-wZO4Y';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        async function loadBooks() {
+async function loadBooks() {
     const searchQuery = document.getElementById('searchInput').value.trim();
     const sortOption = document.getElementById('sortSelect').value;
     const tableBody = document.getElementById('booksTableBody');
@@ -248,17 +248,25 @@
 
     debugError.style.display = 'none';
 
-    // Включаем !inner, если есть поисковый запрос, чтобы сработал фильтр по автору
-    const selectClause = searchQuery 
-        ? 'id, title, publication_year, authors!inner(name)'
-        : 'id, title, publication_year, authors(name)';
-
     let query = supabaseClient
         .from('books')
-        .select(selectClause);
+        .select('id, title, publication_year, authors(name)');
 
     if (searchQuery) {
-        query = query.or(`title.ilike.%${searchQuery}%,authors.name.ilike.%${searchQuery}%`);
+        // 1. Ищем авторов, подходящих под запрос
+        const { data: matchingAuthors } = await supabaseClient
+            .from('authors')
+            .select('id')
+            .ilike('name', `%${searchQuery}%`);
+
+        const authorIds = (matchingAuthors || []).map(a => a.id);
+
+        // 2. Строим условие: название совпадает ИЛИ author_id в списке найденных авторов
+        if (authorIds.length > 0) {
+            query = query.or(`title.ilike.%${searchQuery}%,author_id.in.(${authorIds.join(',')})`);
+        } else {
+            query = query.ilike('title', `%${searchQuery}%`);
+        }
     }
 
     if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
