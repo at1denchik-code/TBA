@@ -234,77 +234,98 @@
         </div>
     </div>
 
-    <script>
-        // Конфигурация Supabase
-        const SUPABASE_URL = 'https://lremdhftyxsqzlksqzyz.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZW1kaGZ0eXhzcXpsa3Nxenl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0Mjg2NjAsImV4cCI6MjEwNzAwNDY2MH0.PIybODD8t0RLI4mgWdijEl52rx-rhA4-csqwl-wZO4Y';
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+   <script>
+    // Конфигурация Supabase
+    const SUPABASE_URL = 'https://lremdhftyxsqzlksqzyz.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyZW1kaGZ0eXhzcXpsa3Nxenl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0Mjg2NjAsImV4cCI6MjEwNzAwNDY2MH0.PIybODD8t0RLI4mgWdijEl52rx-rhA4-csqwl-wZO4Y';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-async function loadBooks() {
-    const searchQuery = document.getElementById('searchInput').value.trim();
-    const sortOption = document.getElementById('sortSelect').value;
-    const tableBody = document.getElementById('booksTableBody');
-    const debugError = document.getElementById('debugError');
+    async function loadBooks() {
+        const searchQuery = document.getElementById('searchInput').value.trim();
+        const sortOption = document.getElementById('sortSelect').value;
+        const tableBody = document.getElementById('booksTableBody');
+        const debugError = document.getElementById('debugError');
 
-    debugError.style.display = 'none';
+        debugError.style.display = 'none';
 
-    let query = supabaseClient
-        .from('books')
-        .select('id, title, publication_year, authors(name)');
+        try {
+            let books = [];
 
-    if (searchQuery) {
-        // 1. Ищем авторов, подходящих под запрос
-        const { data: matchingAuthors } = await supabaseClient
-            .from('authors')
-            .select('id')
-            .ilike('name', `%${searchQuery}%`);
+            if (searchQuery) {
+                // 1. Делаем параллельно два безопасных запроса: по названию книги и по имени автора
+                const [titleRes, authorRes] = await Promise.all([
+                    supabaseClient
+                        .from('books')
+                        .select('id, title, publication_year, authors(name)')
+                        .ilike('title', `%${searchQuery}%`),
+                    
+                    supabaseClient
+                        .from('books')
+                        .select('id, title, publication_year, authors!inner(name)')
+                        .ilike('authors.name', `%${searchQuery}%`)
+                ]);
 
-        const authorIds = (matchingAuthors || []).map(a => a.id);
+                if (titleRes.error) throw titleRes.error;
+                if (authorRes.error) throw authorRes.error;
 
-        // 2. Строим условие: название совпадает ИЛИ author_id в списке найденных авторов
-        if (authorIds.length > 0) {
-            query = query.or(`title.ilike.%${searchQuery}%,author_id.in.(${authorIds.join(',')})`);
-        } else {
-            query = query.ilike('title', `%${searchQuery}%`);
+                // 2. Объединяем результаты и убираем дубликаты по id
+                const combined = [...(titleRes.data || []), ...(authorRes.data || [])];
+                const map = new Map();
+                combined.forEach(item => map.set(item.id, item));
+                books = Array.from(map.values());
+
+                // 3. Сортируем результаты на клиенте
+                books.sort((a, b) => {
+                    if (sortOption === 'title_asc') return (a.title || '').localeCompare(b.title || '');
+                    if (sortOption === 'title_desc') return (b.title || '').localeCompare(a.title || '');
+                    if (sortOption === 'year_asc') return (a.publication_year || 0) - (b.publication_year || 0);
+                    if (sortOption === 'year_desc') return (b.publication_year || 0) - (a.publication_year || 0);
+                    return 0;
+                });
+            } else {
+                // Если нет поиска — стандартный запрос с сортировкой через DB
+                let query = supabaseClient
+                    .from('books')
+                    .select('id, title, publication_year, authors(name)');
+
+                if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
+                if (sortOption === 'title_desc') query = query.order('title', { ascending: false });
+                if (sortOption === 'year_asc') query = query.order('publication_year', { ascending: true });
+                if (sortOption === 'year_desc') query = query.order('publication_year', { ascending: false });
+
+                const { data, error } = await query;
+                if (error) throw error;
+                books = data || [];
+            }
+
+            if (!books || books.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Ничего не найдено 🔍</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = books.map(book => `
+                <tr>
+                    <td><strong>${escapeHtml(book.title)}</strong></td>
+                    <td><span class="author-badge">${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</span></td>
+                    <td><span class="year-text">${book.publication_year || '—'}</span></td>
+                </tr>
+            `).join('');
+
+        } catch (error) {
+            console.error('Ошибка Supabase:', error);
+            debugError.innerText = `Ошибка: ${error.message || JSON.stringify(error)}`;
+            debugError.style.display = 'block';
+            tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Не удалось загрузить данные</td></tr>`;
         }
     }
 
-    if (sortOption === 'title_asc') query = query.order('title', { ascending: true });
-    if (sortOption === 'title_desc') query = query.order('title', { ascending: false });
-    if (sortOption === 'year_asc') query = query.order('publication_year', { ascending: true });
-    if (sortOption === 'year_desc') query = query.order('publication_year', { ascending: false });
-
-    const { data: books, error } = await query;
-
-    if (error) {
-        console.error('Ошибка Supabase:', error);
-        debugError.innerText = `Ошибка: ${error.message}`;
-        debugError.style.display = 'block';
-        tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Не удалось загрузить данные</td></tr>`;
-        return;
+    function escapeHtml(text) {
+        return (text || '').replace(/[&<>"']/g, m => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+        })[m]);
     }
 
-    if (!books || books.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="3" class="empty-state">Ничего не найдено 🔍</td></tr>`;
-        return;
-    }
-
-    tableBody.innerHTML = books.map(book => `
-        <tr>
-            <td><strong>${escapeHtml(book.title)}</strong></td>
-            <td><span class="author-badge">${escapeHtml(book.authors ? book.authors.name : 'Неизвестен')}</span></td>
-            <td><span class="year-text">${book.publication_year || '—'}</span></td>
-        </tr>
-    `).join('');
-}
-
-        function escapeHtml(text) {
-            return (text || '').replace(/[&<>"']/g, m => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-            })[m]);
-        }
-
-        loadBooks();
-    </script>
+    loadBooks();
+</script>
 </body>
 </html>
